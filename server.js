@@ -163,6 +163,30 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    if (p === '/api/kick' && req.method === 'POST') {
+      const body = await readBody(req);
+      const room = hub.getRoom(body.room);
+      if (!room) return sendJson(res, 404, { error: '房间不存在' });
+      try {
+        room.kickPlayer(body.pid, body.target);
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (p === '/api/back' && req.method === 'POST') {
+      const body = await readBody(req);
+      const room = hub.getRoom(body.room);
+      if (!room) return sendJson(res, 404, { error: '房间不存在' });
+      try {
+        room.backToWaiting(body.pid);
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+
     if ((p === '/api/pause' || p === '/api/resume') && req.method === 'POST') {
       const body = await readBody(req);
       const room = hub.getRoom(body.room);

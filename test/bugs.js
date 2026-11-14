@@ -159,6 +159,71 @@ async function waitFor(fn, timeout = 30000) {
     check('下一手中途加入的人不再 sittingOut', meC2.sittingOut === false);
   }
 
+  console.log('\n【6】踢人与回到准备阶段\n');
+
+  const r2res = await post('/api/create', {});
+  const r2 = r2res.data.room;
+  const H = (await post('/api/join', { room: r2, name: '房主' })).data.pid;
+  const X = (await post('/api/join', { room: r2, name: '路人甲' })).data.pid;
+  const Y = (await post('/api/join', { room: r2, name: '路人乙' })).data.pid;
+  const bot1 = (await post('/api/addai', { room: r2, pid: H })).data.pid;
+
+  const kickByGuest = await post('/api/kick', { room: r2, pid: X, target: Y });
+  check('非房主不能踢人', kickByGuest.status === 400, JSON.stringify(kickByGuest.data));
+
+  const kickSelf = await post('/api/kick', { room: r2, pid: H, target: H });
+  check('房主不能踢自己', kickSelf.status === 400, JSON.stringify(kickSelf.data));
+
+  const kickBot = await post('/api/kick', { room: r2, pid: H, target: bot1 });
+  check('房主可以踢机器人', kickBot.status === 200, JSON.stringify(kickBot.data));
+
+  let s2 = await getState(r2, H);
+  check('机器人已被移出', !s2.seats.some((p) => p && p.id === bot1));
+
+  const kickHuman = await post('/api/kick', { room: r2, pid: H, target: Y });
+  check('房主可以踢真人', kickHuman.status === 200, JSON.stringify(kickHuman.data));
+
+  await sleep(300);
+  const kickedView = await getState(r2, Y);
+  check('被踢的人收到 kicked 标记', kickedView.me.kicked === true, JSON.stringify(kickedView.me));
+
+  // 开始游戏后不允许踢人
+  await post('/api/start', { room: r2, pid: H });
+  await sleep(300);
+
+  const kickInGame = await post('/api/kick', { room: r2, pid: H, target: X });
+  check('游戏进行中不能踢人', kickInGame.status === 400, JSON.stringify(kickInGame.data));
+
+  // 打完这一手
+  const done = await waitFor(async () => {
+    const s = await getState(r2, H);
+    if (s.phase === 'showdown' && s.awaitingNext) return s;
+    for (const id of [H, X]) {
+      const p = s.seats.find((x) => x && x.id === id);
+      if (p && s.actorSeat === p.seat && !p.folded && !p.allIn) {
+        const tc = s.currentBet - p.bet;
+        await post('/api/action', { room: r2, pid: id, action: tc > 0 ? 'call' : 'check' });
+      }
+    }
+    return null;
+  }, 45000);
+
+  check('一手能打完', !!done);
+
+  if (done) {
+    const backByGuest = await post('/api/back', { room: r2, pid: X });
+    check('非房主不能回到准备阶段', backByGuest.status === 400, JSON.stringify(backByGuest.data));
+
+    const backOk = await post('/api/back', { room: r2, pid: H });
+    check('房主可以回到准备阶段', backOk.status === 200, JSON.stringify(backOk.data));
+
+    await sleep(400);
+    const afterBack = await getState(r2, H);
+    check('回到 waiting 状态', afterBack.phase === 'waiting', afterBack.phase);
+    check('准备阶段可以重新开局', afterBack.canStart === true);
+    check('踢人按钮重新可用（waiting 阶段）', afterBack.phase === 'waiting');
+  }
+
   console.log(`\n结果：${pass} 通过，${fail} 失败\n`);
   process.exit(fail ? 1 : 0);
 })();

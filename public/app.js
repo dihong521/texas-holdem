@@ -198,6 +198,7 @@ function render() {
   if (!state) return;
 
   if (state.phase === 'closed') { handleClosed(); return; }
+  if (state.me && state.me.kicked) { handleKicked(); return; }
 
   $('handLabel').textContent =
     state.phase === 'waiting' ? '等待开始' : `第 ${state.handNo} 手`;
@@ -307,6 +308,7 @@ function renderSeats() {
   el.innerHTML = '';
 
   const meSeat = state.me.seat >= 0 ? state.me.seat : 0;
+  const canKick = state.me.isHost && state.phase === 'waiting' && !state.paused;
 
   state.seats.forEach((p, seat) => {
     if (!p) return;
@@ -384,6 +386,19 @@ function renderSeats() {
       }
 
       d.appendChild(b);
+    }
+
+    // 房主在开局前可以踢人
+    if (canKick && p.id !== state.me.id) {
+      const k = document.createElement('button');
+      k.className = 'kick-btn';
+      k.textContent = '×';
+      k.title = `移出 ${p.name}`;
+      k.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        kickPlayer(p);
+      });
+      d.appendChild(k);
     }
 
     if (p.sittingOut) {
@@ -897,20 +912,24 @@ function renderResult() {
 
 function updateNextHandButton() {
   const btn = $('nextHandBtn');
+  const backBtn = $('backStageBtn');
   const hint = $('resultHint');
 
   if (state.awaitingNext) {
     if (state.me.isHost) {
       btn.classList.remove('hidden');
       btn.disabled = false;
+      backBtn.classList.remove('hidden');
       hint.textContent = '';
     } else {
       btn.classList.add('hidden');
+      backBtn.classList.add('hidden');
       const host = state.seats.find((p) => p && p.id === state.hostId);
       hint.textContent = host ? `等待房主 ${host.name} 开始下一手` : '等待房主开始下一手';
     }
   } else {
     btn.classList.add('hidden');
+    backBtn.classList.add('hidden');
     hint.textContent = '下一手即将开始…';
   }
 }
@@ -948,6 +967,36 @@ $('rejoinBtn').addEventListener('click', async () => {
 $('bustLeaveBtn').addEventListener('click', () => {
   $('leaveBtn').click();
 });
+
+let kickedHandled = false;
+
+function handleKicked() {
+  if (kickedHandled) return;
+  kickedHandled = true;
+
+  $('resultModal').classList.add('hidden');
+  $('bustModal').classList.add('hidden');
+  $('pauseOverlay').classList.add('hidden');
+
+  const card = document.createElement('div');
+  card.className = 'modal';
+  card.innerHTML = `
+    <div class="modal-card narrow">
+      <h2>你已被移出房间</h2>
+      <p class="bust-msg">房主把你移出了这个房间。</p>
+      <div class="bust-actions">
+        <button class="btn primary" id="kickedLobbyBtn">返回大厅</button>
+      </div>
+    </div>`;
+  document.body.appendChild(card);
+
+  card.querySelector('#kickedLobbyBtn').addEventListener('click', () => {
+    if (es) es.close();
+    localStorage.removeItem('poker_room');
+    localStorage.removeItem('poker_pid');
+    location.reload();
+  });
+}
 
 function handleClosed() {
   if (state.modalHandled) return;
@@ -1002,6 +1051,26 @@ async function startGame() {
     toast(e.message);
   }
 }
+
+async function kickPlayer(target) {
+  if (!confirm(`确定把「${target.name}」移出房间吗？`)) return;
+  try {
+    await post('/api/kick', { room: roomId, pid, target: target.id });
+    toast(`${target.name} 已被移出房间`);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function backToStage() {
+  try {
+    await post('/api/back', { room: roomId, pid });
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+$('backStageBtn').addEventListener('click', backToStage);
 
 $('aiBtn').addEventListener('click', async () => {
   try {

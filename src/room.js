@@ -45,6 +45,7 @@ class Room {
     this.actionSeq = 0;
     this.dissolved = false;     // 没有真人后房间解散
     this.eliminated = new Set(); // 被淘汰出局的玩家 id
+    this.kicked = new Set();     // 被房主踢出的玩家 id
 
     // 暂停
     this.paused = false;
@@ -170,6 +171,7 @@ class Room {
     };
     this.seats[seat] = player;
     this.eliminated.delete(player.id);
+    this.kicked.delete(player.id);
     if (!this.hostId) this.hostId = player.id;
     this.addLog(
       midHand
@@ -225,6 +227,31 @@ class Room {
 
     this.checkDissolve();
     this.broadcast();
+  }
+
+  // 房主踢人：只能在开局前。牌局进行中要等这一手结束
+  kickPlayer(pid, targetId) {
+    if (this.dissolved) throw new Error('房间已解散');
+    if (pid !== this.hostId) throw new Error('只有房主可以踢人');
+    if (this.phase !== 'waiting') throw new Error('游戏进行中不能踢人，等这一手结束再操作');
+    if (!targetId) throw new Error('没有指定要踢的人');
+    if (targetId === pid) throw new Error('不能踢自己');
+
+    const target = this.seats.find(p => p && p.id === targetId);
+    if (!target) throw new Error('找不到这个玩家');
+
+    if (!target.isAI) this.kicked.add(target.id);
+    this.addLog(`${target.name} 被房主移出房间`);
+    this.removePlayer(target.id);
+  }
+
+  // 一手结束后，房主可以把房间转回准备阶段（调整人员、加机器人等）
+  backToWaiting(pid) {
+    if (this.dissolved) throw new Error('房间已解散');
+    if (pid !== this.hostId) throw new Error('只有房主可以操作');
+    if (this.phase !== 'showdown') throw new Error('只有一手结束后才能回到准备阶段');
+
+    this.toWaiting('房主把房间转回了准备阶段');
   }
 
   // 房主离开后交给下一个真人；没有真人了就交给人机或置空
@@ -959,6 +986,7 @@ class Room {
         id: pid,
         isHost: this.hostId === pid,
         eliminated: this.eliminated.has(pid) && meSeat < 0,
+        kicked: this.kicked.has(pid) && meSeat < 0,
       },
     };
   }

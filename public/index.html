@@ -79,14 +79,17 @@
 
   <!-- 摊牌结果 -->
   <div id="resultModal" class="modal hidden">
-    <div class="modal-card">
-      <h2>本手结束</h2>
-      <div class="result-pot">底池 <b id="resultPot">0</b></div>
-      <div id="resultBoard" class="result-board hidden"></div>
-      <div id="resultMine" class="result-mine hidden"></div>
-      <div id="resultList" class="result-list"></div>
+    <div class="modal-card result-card">
+      <div class="modal-scroll">
+        <h2>本手结束</h2>
+        <div class="result-pot">底池 <b id="resultPot">0</b></div>
+        <div id="resultBoard" class="result-board hidden"></div>
+        <div id="resultMine" class="result-mine hidden"></div>
+        <div id="resultList" class="result-list"></div>
+      </div>
       <div class="modal-foot">
         <span id="resultHint" class="result-hint"></span>
+        <button id="backStageBtn" class="btn hidden">回到准备阶段</button>
         <button id="nextHandBtn" class="btn primary hidden">开始下一手</button>
       </div>
     </div>

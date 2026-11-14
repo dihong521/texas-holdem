@@ -1035,3 +1035,71 @@ html, body {
   .pause-time { font-size: 29px; }
   .pause-title { font-size: 18px; }
 }
+
+/* ---------- 结算面板：固定底部按钮 ---------- */
+
+.result-card {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  max-height: 88vh;
+}
+
+.modal-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 20px 6px;
+}
+
+.result-card .modal-foot {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: rgba(10, 14, 20, .62);
+}
+
+.result-card .modal-foot .btn {
+  padding: 13px 24px;
+  font-size: 15px;
+}
+
+#backStageBtn {
+  background: #232c38;
+  border-color: #3a4658;
+  color: #b9c5d3;
+  font-size: 14px;
+}
+
+/* ---------- 座位上的踢人按钮 ---------- */
+
+.seat .kick-btn {
+  position: absolute;
+  left: -8px;
+  top: -8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #6b3030;
+  background: #3a1c1c;
+  color: #ff9b90;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seat .kick-btn:hover { background: #5a2626; color: #fff; }
+
+@media (max-width: 640px) {
+  .modal-scroll { padding: 18px 15px 4px; }
+  .result-card .modal-foot { padding: 12px 14px; }
+  .result-card .modal-foot .btn { padding: 12px 16px; font-size: 14px; }
+  .seat .kick-btn { width: 20px; height: 20px; font-size: 14px; }
+}
