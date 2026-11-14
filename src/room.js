@@ -10,10 +10,8 @@ const BIG_BLIND = 20;
 const BUY_IN = 10000;                 // 初始买入
 const MIN_CHIPS_TO_PLAY = BIG_BLIND;  // 低于这个数就出局
 const TURN_MS = 30000;                // 每人思考时间
-const AUTO_START_MS = 3000;           // 人数够了自动开第一手
 const OFFLINE_GRACE_MS = 3 * 60000;   // 等待阶段掉线多久后清座
 const OFFLINE_IN_GAME_MS = 5 * 60000; // 牌局进行中掉线多久后清座
-const HOST_GONE_AUTO_START_MS = 60000; // 房主掉线后，等待多久自动开下一手
 
 const AI_NAMES = ['阿法','贝塔','伽马','德尔塔','艾普西龙','泽塔'];
 
@@ -47,6 +45,11 @@ class Room {
     this.actionSeq = 0;
     this.dissolved = false;     // 没有真人后房间解散
     this.eliminated = new Set(); // 被淘汰出局的玩家 id
+
+    // 暂停
+    this.paused = false;
+    this.pausedAt = null;
+    this.pauseRemainingMs = 0;
 
     this.smallBlind = SMALL_BLIND;
     this.bigBlind = BIG_BLIND;
@@ -144,6 +147,9 @@ class Room {
     const seat = this.seats.indexOf(null);
     if (seat < 0) return null;
 
+    // 牌局进行中坐下的人，这一手不参与，等下一手才发牌
+    const midHand = this.phase !== 'waiting' && this.phase !== 'showdown' && this.phase !== 'closed';
+
     const player = {
       id: pid || crypto.randomUUID(),
       name: (name || '').slice(0, 12) || '无名',
@@ -151,7 +157,8 @@ class Room {
       seat,
       chips: this.buyIn,
       hole: [],
-      folded: false,
+      folded: midHand,
+      sittingOut: midHand,
       allIn: false,
       bet: 0,
       totalBet: 0,
@@ -164,8 +171,11 @@ class Room {
     this.seats[seat] = player;
     this.eliminated.delete(player.id);
     if (!this.hostId) this.hostId = player.id;
-    this.addLog(`${player.name} 坐到了 ${seat + 1} 号位`);
-    this.maybeAutoStart();
+    this.addLog(
+      midHand
+        ? `${player.name} 坐到了 ${seat + 1} 号位（本手结束后参与）`
+        : `${player.name} 坐到了 ${seat + 1} 号位`
+    );
     this.broadcast();
     return player;
   }
@@ -213,7 +223,6 @@ class Room {
       }
     }
 
-    if (this.phase === 'waiting') this.maybeAutoStart();
     this.checkDissolve();
     this.broadcast();
   }
@@ -265,39 +274,20 @@ class Room {
       this.removePlayer(pid);
     }
 
-    // 摊牌后房主一直不点开始（或者房主掉线了），自动开始下一手
-    if (this.awaitingNext && !this.dissolved) {
-      const host = this.seats.find(p => p && p.id === this.hostId);
-      if (!host) {
-        this.startHand();
-      } else if (!host.isAI && !host.connected && host.disconnectedAt &&
-                 now - host.disconnectedAt > HOST_GONE_AUTO_START_MS) {
-        this.addLog('房主掉线，自动开始下一手');
-        this.startHand();
-      }
+    // 房主走光了但还剩玩家：交给下一个人，不自动开局
+    if (this.awaitingNext && !this.dissolved && !this.seats.some(p => p && p.id === this.hostId)) {
+      this.transferHost();
     }
   }
 
   // ---------- 开局 ----------
 
-  maybeAutoStart() {
-    if (this.phase !== 'waiting') return;
-    if (this.nextHandAt) return;
-    if (this.dissolved) return;
-    if (this.readyCount() >= 2) this.scheduleNextHand(AUTO_START_MS);
-  }
-
-  // 等待阶段才有倒计时；摊牌后改由房主手动点「开始下一手」
-  scheduleNextHand(delay = AUTO_START_MS) {
-    if (this.nextHandTimer) return;
-    this.nextHandAt = Date.now() + delay;
-    this.nextHandTimer = setTimeout(() => {
-      this.nextHandTimer = null;
-      this.nextHandAt = null;
-      this.startHand();
-    }, delay);
-    if (this.nextHandTimer.unref) this.nextHandTimer.unref();
-    this.broadcast();
+  // 现在一律由房主手动开局，不再自动开始
+  canStart() {
+    if (this.dissolved || this.paused) return false;
+    if (this.readyCount() < 2) return false;
+    if (this.phase === 'waiting') return true;
+    return this.phase === 'showdown' && this.awaitingNext;
   }
 
   // 筹码低于一个大盲就出局，回到大厅
@@ -327,17 +317,65 @@ class Room {
       if (!p) continue;
       p.hole = []; p.bet = 0; p.totalBet = 0;
       p.folded = false; p.allIn = false; p.hasActed = false;
+      p.sittingOut = false;
     }
     if (reason) this.addLog(reason);
-    this.maybeAutoStart();
     this.broadcast();
   }
 
-  // 房主点击「开始下一手」
-  startNextHand(pid) {
+  // ---------- 暂停 / 继续（只有房主能操作） ----------
+
+  pause(pid) {
     if (this.dissolved) throw new Error('房间已解散');
-    if (this.phase !== 'showdown' || !this.awaitingNext) throw new Error('现在不能开始下一手');
-    if (pid !== this.hostId) throw new Error('只有房主可以开始下一手');
+    if (pid !== this.hostId) throw new Error('只有房主可以暂停');
+    if (this.paused) return;
+
+    const inPlay = ['preflop', 'flop', 'turn', 'river'].includes(this.phase);
+    if (!inPlay) throw new Error('当前没有进行中的牌局，不需要暂停');
+
+    this.paused = true;
+    this.pausedAt = Date.now();
+
+    // 记住这个回合还剩多少时间，继续时接着算
+    this.pauseRemainingMs = this.turnDeadline
+      ? Math.max(1000, this.turnDeadline - Date.now())
+      : TURN_MS;
+
+    clearTimeout(this.turnTimer);
+    clearTimeout(this.aiTimer);
+    this.turnTimer = this.aiTimer = null;
+    this.turnDeadline = null;   // 暂停期间前端不显示倒计时
+
+    const host = this.seats.find(p => p && p.id === pid);
+    this.addLog(`${host ? host.name : '房主'} 暂停了游戏`);
+    this.broadcast();
+  }
+
+  resume(pid) {
+    if (this.dissolved) throw new Error('房间已解散');
+    if (pid !== this.hostId) throw new Error('只有房主可以继续');
+    if (!this.paused) return;
+
+    const pausedFor = this.pausedAt ? Date.now() - this.pausedAt : 0;
+    this.paused = false;
+    this.pausedAt = null;
+
+    // 暂停期间倒计时不走，所以 turnDeadline 要用剩余时间重新算
+    const remain = this.pauseRemainingMs || TURN_MS;
+    this.addLog(`游戏继续（暂停了 ${Math.round(pausedFor / 1000)} 秒）`);
+
+    if (this.actorSeat >= 0) this.scheduleActor(remain);
+    else this.broadcast();
+  }
+
+  // 房主点击「开始游戏 / 开始下一手」
+  startGame(pid) {
+    if (this.dissolved) throw new Error('房间已解散');
+    if (this.paused) throw new Error('游戏暂停中，先继续再开始');
+    if (pid !== this.hostId) throw new Error('只有房主可以开始游戏');
+    if (this.readyCount() < 2) throw new Error('至少需要 2 位玩家才能开局');
+    if (!this.canStart()) throw new Error('现在不能开始新的一手');
+
     this.startHand();
   }
 
@@ -378,6 +416,7 @@ class Room {
       if (!p) continue;
       p.hole = []; p.bet = 0; p.totalBet = 0;
       p.folded = false; p.allIn = false; p.hasActed = false;
+      p.sittingOut = false;
     }
 
     // 新手开始，统计每个参战的人「见过一手」
@@ -437,7 +476,7 @@ class Room {
 
   // ---------- 行动 ----------
 
-  scheduleActor() {
+  scheduleActor(ms = TURN_MS) {
     clearTimeout(this.turnTimer);
     clearTimeout(this.aiTimer);
     this.turnTimer = this.aiTimer = null;
@@ -451,16 +490,23 @@ class Room {
     const p = this.seats[s];
     if (!p) { this.turnDeadline = null; this.broadcast(); return; }
 
-    this.turnDeadline = Date.now() + TURN_MS;
+    // 暂停中不启动任何计时器
+    if (this.paused) {
+      this.turnDeadline = null;
+      this.broadcast();
+      return;
+    }
+
+    this.turnDeadline = Date.now() + ms;
 
     // 超时托管
     this.turnTimer = setTimeout(() => {
-      if (this.actorSeat !== s) return;
+      if (this.actorSeat !== s || this.paused) return;
       const cur = this.seats[s];
       if (!cur || cur.folded || cur.allIn) return;
       const toCall = this.currentBet - cur.bet;
       try { this.act(s, toCall > 0 ? 'fold' : 'check'); } catch (e) { /* 忽略 */ }
-    }, TURN_MS);
+    }, ms);
 
     // AI 稍微思考一下
     if (p.isAI) {
@@ -475,6 +521,7 @@ class Room {
   }
 
   act(seat, action, amount) {
+    if (this.paused) throw new Error('游戏暂停中，无法操作');
     if (this.actorSeat !== seat) throw new Error('还没轮到你行动');
     const p = this.seats[seat];
     if (!p) throw new Error('座位为空');
@@ -578,6 +625,7 @@ class Room {
   botAct(seat) {
     const p = this.seats[seat];
     if (!p || this.actorSeat !== seat) return;
+    if (this.paused) return;
 
     const live = this.livePlayers();
 
@@ -880,6 +928,9 @@ class Room {
       revealed: this.revealed,
       winners: this.winners,
       awaitingNext: this.awaitingNext,
+      canStart: this.canStart(),
+      paused: this.paused,
+      pausedForMs: this.paused && this.pausedAt ? Date.now() - this.pausedAt : 0,
       result: this.resultFor(pid),
       lastAction: this.lastAction,
       dissolved: this.dissolved,
@@ -897,6 +948,7 @@ class Room {
           folded: p.folded,
           allIn: p.allIn,
           connected: p.connected,
+          sittingOut: !!p.sittingOut,
           style: bot.styleLabel(p.stats),
           hole: canShow(p) ? p.hole : (p.hole.length ? ['??', '??'] : []),
           handName: this.revealed && !p.folded ? (this.handNames[p.id] || null) : null,
@@ -959,13 +1011,22 @@ class Hub {
     if (this.sweeper.unref) this.sweeper.unref();
   }
 
-  createRoom() {
-    let id;
+  createRoom(id) {
+    if (id) {
+      const wanted = String(id).trim();
+      if (!/^\d{4}$/.test(wanted)) return null;
+      if (this.rooms.has(wanted)) return null;
+      const room = new Room(wanted);
+      this.rooms.set(wanted, room);
+      return room;
+    }
+
+    let newId;
     do {
-      id = Math.floor(1000 + Math.random() * 9000).toString();
-    } while (this.rooms.has(id));
-    const room = new Room(id);
-    this.rooms.set(id, room);
+      newId = Math.floor(1000 + Math.random() * 9000).toString();
+    } while (this.rooms.has(newId));
+    const room = new Room(newId);
+    this.rooms.set(newId, room);
     return room;
   }
 

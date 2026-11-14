@@ -1,2 +1,16 @@
-/dist
-/node_modules
+# 依赖（本项目零依赖，保留以防万一）
+node_modules/
+
+# 日志
+*.log
+npm-debug.log*
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 运行时状态（数据都在内存，没有落盘文件）
+/tmp/

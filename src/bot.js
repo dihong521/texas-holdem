@@ -122,7 +122,7 @@ function profileOf(stats) {
  * 返回 1.0 表示不调整，越大表示越应该调低胜率。
  */
 function pressureFactor({ street, raiser, raisesThisStreet, allIn }) {
-  const STREET_W = { preflop: 0.30, flop: 0.40, turn: 0.48, river: 0.56 };
+  const STREET_W = { preflop: 0.20, flop: 0.28, turn: 0.34, river: 0.40 };
   const base = STREET_W[street] ?? 0.4;
 
   const prof = profileOf(raiser && raiser.stats);
@@ -232,22 +232,25 @@ function decidePreflop({ player, toCall, pot, rawEquity, eq, r, potOdds,
     if (eq > 0.62 && canRaise && r < 0.35) {
       return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.9, minRaiseTo, maxRaiseTo) };
     }
-    if (eq > potOdds + 0.10) return { action: 'call' };
+    if (eq > potOdds + 0.05) return { action: 'call' };
     return { action: 'fold' };
   }
 
-  if (eq > 0.68 && canRaise && r < 0.45) {
+  if (eq > 0.68 && canRaise && r < 0.6) {
     return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.95, minRaiseTo, maxRaiseTo) };
   }
-  if (eq > potOdds + 0.06) {
-    if (eq > 0.60 && canRaise && r < 0.22) {
+
+  // 跟注门槛用「赔率的 95%」而不是「赔率 + 固定值」：
+  // 隐含赔率（后面还能赢更多）大致能补上这点差距
+  if (eq > potOdds * 0.95) {
+    if (eq > 0.58 && canRaise && r < 0.45) {
       return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.7, minRaiseTo, maxRaiseTo) };
     }
     return { action: 'call' };
   }
 
-  // 大盲位可以用很便宜的价钱跟一下
-  if (toCall <= bigBlindCall * 0.6 && eq > potOdds * 0.8 && r < 0.4) {
+  // 便宜的跟注（比如只补盲注）再宽一点
+  if (toCall <= bigBlindCall * 0.7 && eq > 0.30 && r < 0.6) {
     return { action: 'call' };
   }
 
@@ -266,7 +269,7 @@ function decidePostflop({ player, toCall, pot, eq, r, potOdds,
     if (eq > 0.62 && canRaise && r < 0.62) {
       return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.55, minRaiseTo, maxRaiseTo) };
     }
-    if (r < 0.08 && canRaise) {
+    if (r < 0.13 && canRaise) {
       return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.45, minRaiseTo, maxRaiseTo) };
     }
     return { action: 'check' };
@@ -276,14 +279,14 @@ function decidePostflop({ player, toCall, pot, eq, r, potOdds,
   if (eq > 0.78 && canRaise && r < 0.55) {
     return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.85, minRaiseTo, maxRaiseTo) };
   }
-  if (eq > potOdds + 0.05) {
+  if (eq > potOdds + 0.02) {
     if (eq > 0.66 && canRaise && r < 0.25) {
       return { action: 'raise', amount: makeRaise(player, currentBet, pot, 0.65, minRaiseTo, maxRaiseTo) };
     }
     return { action: 'call' };
   }
   // 赔率差一点，偶尔用听牌跟一下
-  if (eq > potOdds * 0.82 && r < 0.06) return { action: 'call' };
+  if (eq > potOdds * 0.76 && r < 0.11) return { action: 'call' };
 
   return { action: 'fold' };
 }

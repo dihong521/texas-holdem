@@ -97,6 +97,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (p === '/api/create' && req.method === 'POST') {
+      const body = await readBody(req);
+      const wanted = String(body.room || '').trim();
+
+      if (wanted) {
+        if (!/^\d{4}$/.test(wanted)) {
+          return sendJson(res, 400, { error: '房间号必须是 4 位数字' });
+        }
+        if (hub.rooms.has(wanted)) {
+          return sendJson(res, 409, { error: `房间号 ${wanted} 已经被占用了，换一个` });
+        }
+        const room = hub.createRoom(wanted);
+        if (!room) return sendJson(res, 400, { error: '房间号不可用' });
+        return sendJson(res, 200, { room: room.id });
+      }
+
       const room = hub.createRoom();
       return sendJson(res, 200, { room: room.id });
     }
@@ -141,7 +156,20 @@ const server = http.createServer(async (req, res) => {
       const room = hub.getRoom(body.room);
       if (!room) return sendJson(res, 404, { error: '房间不存在' });
       try {
-        room.startNextHand(body.pid);
+        room.startGame(body.pid);
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if ((p === '/api/pause' || p === '/api/resume') && req.method === 'POST') {
+      const body = await readBody(req);
+      const room = hub.getRoom(body.room);
+      if (!room) return sendJson(res, 404, { error: '房间不存在' });
+      try {
+        if (p === '/api/pause') room.pause(body.pid);
+        else room.resume(body.pid);
       } catch (e) {
         return sendJson(res, 400, { error: e.message });
       }

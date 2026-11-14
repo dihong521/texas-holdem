@@ -24,6 +24,8 @@ let resultKey = '';
 let lastHandNo = 0;
 let lastTurnKey = '';
 let lastCountdownSec = null;
+let pauseBaseMs = 0;
+let pauseBaseAt = 0;
 
 // ---------------- 网络 ----------------
 
@@ -67,9 +69,17 @@ async function joinRoom(room, name) {
 $('createBtn').addEventListener('click', async () => {
   const name = getName();
   if (!name) return;
+
+  // 填了房间号就用这个号，留空则随机生成
+  const wanted = $('roomInput').value.trim();
+  if (wanted && !/^\d{4}$/.test(wanted)) {
+    $('lobbyMsg').textContent = '自定义房间号必须是 4 位数字';
+    return;
+  }
+
   $('lobbyMsg').textContent = '';
   try {
-    const r = await post('/api/create', {});
+    const r = await post('/api/create', wanted ? { room: wanted } : {});
     await joinRoom(r.room, name);
   } catch (e) {
     $('lobbyMsg').textContent = e.message;
@@ -120,6 +130,12 @@ function connect() {
       }
 
       state = next;
+
+      // 暂停计时基准：服务端已经暂停的毫秒数 + 本地流逝
+      if (state.paused) {
+        pauseBaseMs = state.pausedForMs || 0;
+        pauseBaseAt = Date.now();
+      }
 
       // 刚进入房间时不要补播上一条旧动作的提示音
       if (firstSnapshot) {
@@ -196,7 +212,61 @@ function render() {
   renderLog();
   renderResult();
   renderBust();
+  renderPause();
 }
+
+// ---------- 暂停 ----------
+
+function fmtDuration(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function renderPause() {
+  const inPlay = ['preflop', 'flop', 'turn', 'river'].includes(state.phase);
+
+  // 顶栏「暂停」按钮：只有房主、牌局进行中、且还没暂停时显示
+  const pauseBtn = $('pauseBtn');
+  pauseBtn.classList.toggle('hidden', !(state.me.isHost && inPlay && !state.paused));
+
+  const overlay = $('pauseOverlay');
+  overlay.classList.toggle('hidden', !state.paused);
+
+  if (!state.paused) return;
+
+  const resumeBtn = $('resumeBtn');
+  const sub = $('pauseSub');
+
+  if (state.me.isHost) {
+    resumeBtn.classList.remove('hidden');
+    sub.textContent = '';
+  } else {
+    resumeBtn.classList.add('hidden');
+    const host = state.seats.find((p) => p && p.id === state.hostId);
+    sub.textContent = host ? `等待房主 ${host.name} 继续` : '等待房主继续';
+  }
+}
+
+$('pauseBtn').addEventListener('click', async () => {
+  try {
+    await post('/api/pause', { room: roomId, pid });
+  } catch (e) {
+    toast(e.message);
+  }
+});
+
+$('resumeBtn').addEventListener('click', async () => {
+  try {
+    await post('/api/resume', { room: roomId, pid });
+  } catch (e) {
+    toast(e.message);
+  }
+});
 
 function renderBoard() {
   const el = $('board');
@@ -316,7 +386,12 @@ function renderSeats() {
       d.appendChild(b);
     }
 
-    if (p.allIn) {
+    if (p.sittingOut) {
+      const t = document.createElement('div');
+      t.className = 'tag sitting-out';
+      t.textContent = '下局加入';
+      d.appendChild(t);
+    } else if (p.allIn) {
       const t = document.createElement('div');
       t.className = 'tag';
       t.textContent = '全下';
@@ -391,12 +466,46 @@ function renderActions() {
     state.phase !== 'showdown';
 
   if (!myTurn) {
+    el.innerHTML = '';
+    lastActionKey = '';
+
+    // 暂停中，任何人都不能操作
+    if (state.paused) {
+      const hint = document.createElement('div');
+      hint.className = 'waiting-hint paused';
+      hint.textContent = '游戏已暂停';
+      el.appendChild(hint);
+      return;
+    }
+
+    // 等待开局：房主看到「开始游戏」按钮
+    if (state.phase === 'waiting') {
+      const seated = state.seats.filter(Boolean).length;
+
+      if (state.me.isHost) {
+        if (state.canStart) {
+          const btn = makeBtn('开始游戏', 'raise', startGame);
+          el.appendChild(btn);
+        } else {
+          const hint = document.createElement('div');
+          hint.className = 'waiting-hint';
+          hint.textContent =
+            `等待玩家（${seated}/${state.maxSeats}）· 至少 2 人才能开始 · 可点右上角「+ 机器人」补位`;
+          el.appendChild(hint);
+        }
+      } else {
+        const hint = document.createElement('div');
+        hint.className = 'waiting-hint';
+        hint.textContent = `等待房主开始游戏（${seated}/${state.maxSeats}）`;
+        el.appendChild(hint);
+      }
+      return;
+    }
+
     const hint = document.createElement('div');
     hint.className = 'waiting-hint';
-    if (state.phase === 'waiting') {
-      hint.textContent = p.connected === false ? '' : '等待更多玩家加入…';
-    } else if (p.folded) {
-      hint.textContent = '你已弃牌，等待本手结束';
+    if (p.folded) {
+      hint.textContent = p.sittingOut ? '本手不参与，下一手开始' : '你已弃牌，等待本手结束';
     } else if (p.allIn) {
       hint.textContent = '你已全下，等待摊牌';
     } else if (state.phase === 'showdown') {
@@ -405,9 +514,7 @@ function renderActions() {
       const actor = state.seats[state.actorSeat];
       hint.textContent = actor ? `等待 ${actor.name} 行动…` : '等待中…';
     }
-    el.innerHTML = '';
     el.appendChild(hint);
-    lastActionKey = '';
     return;
   }
 
@@ -888,6 +995,14 @@ async function act(action, amount) {
   }
 }
 
+async function startGame() {
+  try {
+    await post('/api/start', { room: roomId, pid });
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
 $('aiBtn').addEventListener('click', async () => {
   try {
     await post('/api/addai', { room: roomId, pid });
@@ -936,9 +1051,10 @@ setInterval(() => {
     lastCountdownSec = null;
   }
 
-  if (state.phase === 'waiting' && state.nextHandAt) {
-    const s = Math.max(0, Math.ceil((state.nextHandAt - Date.now()) / 1000));
-    $('phaseLabel').textContent = `即将开始 ${s}s`;
+  // 暂停计时：服务端已暂停的时长 + 本地流逝
+  if (state.paused) {
+    const ms = pauseBaseMs + (Date.now() - pauseBaseAt);
+    $('pauseTime').textContent = fmtDuration(ms);
   }
 
   // 操作气泡和顶部提示超时自动消失

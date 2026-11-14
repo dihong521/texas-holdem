@@ -1,12 +1,23 @@
 {
   "name": "texas-holdem",
   "version": "1.0.0",
-  "description": "局域网多人德州扑克，支持 AI 对手",
+  "description": "零依赖的局域网多人德州扑克，支持 AI 对手",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "status": "node tools/status.js",
+    "stop": "node tools/stop.js"
   },
+  "keywords": [
+    "poker",
+    "texas-holdem",
+    "lan",
+    "multiplayer",
+    "ai",
+    "nodejs"
+  ],
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },

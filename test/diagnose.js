@@ -5,7 +5,6 @@ const { Room } = require('../src/room');
 
 const room = new Room('diag');
 room.scheduleActor = () => {};
-room.scheduleNextHand = () => {};
 room.broadcast = () => {};
 room.sweep = () => {};
 room.bustOut = () => {};   // 关掉淘汰，保证筹码不离开桌面，方便核对

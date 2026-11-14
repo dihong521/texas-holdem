@@ -161,7 +161,6 @@ console.log('\n【3】完整牌局模拟（真实 AI）');
 function makeRoom(n) {
   const room = new Room('test');
   room.scheduleActor = () => {};
-  room.scheduleNextHand = () => {};
   room.broadcast = () => {};
   // 至少留一个真人，否则「没有真人就解散」会直接清空房间
   for (let i = 0; i < n; i++) room.addPlayer('P' + i, i !== 0);
@@ -244,7 +243,6 @@ check('非法动作不打断回合：计时器仍然有效，超时能托管', (
   // 这个测试要验证真实的 scheduleActor，所以不能用 makeRoom 把计时器屏蔽掉
   const room = new Room('t');
   room.broadcast = () => {};
-  room.scheduleNextHand = () => {};
   room.addPlayer('P0', false);   // 留一个真人，避免触发解散
   room.addPlayer('P1', true);
   room.startHand();
@@ -365,11 +363,11 @@ check('只有房主能开始下一手', () => {
 
   const nonHost = room.seats.find((p) => p && p.id !== room.hostId).id;
   let threw = false;
-  try { room.startNextHand(nonHost); } catch (e) { threw = true; }
+  try { room.startGame(nonHost); } catch (e) { threw = true; }
   assert(threw, '非房主不应能开始下一手');
 
   const handBefore = room.handNo;
-  room.startNextHand(room.hostId);
+  room.startGame(room.hostId);
   assert(room.handNo === handBefore + 1, '房主点击后应开始新的手');
   room.clearTimers();
 });
@@ -390,7 +388,6 @@ check('真人被淘汰后重新入座恢复 1 万筹码', () => {
   const room = new Room('t');
   room.broadcast = () => {};
   room.scheduleActor = () => {};
-  room.scheduleNextHand = () => {};
   const p1 = room.addPlayer('真人甲', false, 'human-1');
   const p2 = room.addPlayer('真人乙', false, 'human-2');
 

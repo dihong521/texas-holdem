@@ -22,7 +22,7 @@
 
       <label>
         <span>房间号 <em>（加入别人的房间）</em></span>
-        <input id="roomInput" maxlength="4" inputmode="numeric" placeholder="例如 1234" autocomplete="off">
+        <input id="roomInput" maxlength="4" inputmode="numeric" placeholder="例如 1234（创建时留空则自动生成）" autocomplete="off">
       </label>
 
       <div class="lobby-buttons">
@@ -43,6 +43,7 @@
       <span id="hostTag" class="host-tag hidden">房主</span>
       <span class="spacer"></span>
       <button id="aiBtn" class="btn small">+ 机器人</button>
+      <button id="pauseBtn" class="btn small hidden">⏸ 暂停</button>
       <button id="soundBtn" class="btn small" title="提示音开关">🔊</button>
       <button id="logBtn" class="btn small">记录</button>
       <button id="leaveBtn" class="btn small danger">离开</button>
@@ -100,6 +101,17 @@
         <button id="rejoinBtn" class="btn primary">重新入座（1 万筹码）</button>
         <button id="bustLeaveBtn" class="btn">离开房间</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 暂停遮罩 -->
+  <div id="pauseOverlay" class="pause-overlay hidden">
+    <div class="pause-card">
+      <div class="pause-icon">⏸</div>
+      <div class="pause-title">暂停中</div>
+      <div class="pause-time" id="pauseTime">00:00</div>
+      <div class="pause-sub" id="pauseSub">等待房主继续</div>
+      <button id="resumeBtn" class="btn primary hidden">继续游戏</button>
     </div>
   </div>
 

@@ -44,13 +44,18 @@ async function main() {
   while (handsPlayed < 5 && Date.now() - t0 < 120000) {
     const s = await getState(room, humans[0]);
 
-    // 一手结束：房主点「开始下一手」
-    if (s.phase === 'showdown' && s.awaitingNext) {
-      if (s.handNo > lastHand) lastHand = s.handNo;
-      handsPlayed = s.handNo;
-      sawShowdown = true;
+    // 房主点「开始游戏 / 开始下一手」
+    const needStart = (s.phase === 'waiting' && s.canStart) ||
+                      (s.phase === 'showdown' && s.awaitingNext);
+
+    if (needStart) {
+      if (s.phase === 'showdown') {
+        if (s.handNo > lastHand) lastHand = s.handNo;
+        handsPlayed = s.handNo;
+        sawShowdown = true;
+      }
       const r = await post('/api/start', { room, pid: humans[0] });
-      if (r.status !== 200) console.log('  开始下一手失败:', r.data.error);
+      if (r.status !== 200) console.log('  开始失败:', r.data.error);
       await sleep(250);
       continue;
     }

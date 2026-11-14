@@ -42,12 +42,18 @@ async function waitFor(fn, timeout = 90000) {
   await post('/api/addai', { room, pid: A });
   await post('/api/addai', { room, pid: A });
 
-  // 等开局
+  // 不再自动开局，必须房主点开始
+  await sleep(1500);
+  const idle = await getState(room, A);
+  check('人齐了也不会自动开局', idle.phase === 'waiting', idle.phase);
+  check('房主此时可以点开始', idle.canStart === true);
+
   const started = await waitFor(async () => {
+    await post('/api/start', { room, pid: A });
     const s = await getState(room, A);
     return s.phase !== 'waiting' ? s : null;
   });
-  check('人数够了自动开第一手', !!started);
+  check('房主点开始后进入第一手', !!started);
 
   // 两个真人能行动就过牌/跟注，把这一手打完
   const showdown = await waitFor(async () => {
