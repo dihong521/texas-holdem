@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>服务状态 · 德州扑克</title>
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    body {
+      overflow: auto;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+
+    .wrap {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 16px 60px;
+    }
+
+    .head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .head h1 {
+      margin: 0;
+      font-size: 21px;
+      letter-spacing: 1px;
+    }
+
+    .pill {
+      padding: 3px 11px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .pill.ok { color: #7fe0a8; background: rgba(53, 208, 127, .15); border: 1px solid rgba(53, 208, 127, .4); }
+    .pill.bad { color: #ff9b90; background: rgba(232, 86, 74, .15); border: 1px solid rgba(232, 86, 74, .4); }
+
+    .refresh {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    .stat {
+      padding: 13px 15px;
+      border-radius: 13px;
+      background: linear-gradient(180deg, #1b2432, #141a24);
+      border: 1px solid var(--line);
+    }
+
+    .stat .k { font-size: 12px; color: var(--muted); }
+    .stat .v { font-size: 22px; font-weight: 700; color: var(--gold); margin-top: 5px; }
+    .stat .s { font-size: 11px; color: #5f6b7a; margin-top: 3px; }
+
+    h2 {
+      margin: 26px 0 12px;
+      font-size: 14px;
+      color: var(--muted);
+      letter-spacing: 1px;
+      font-weight: 600;
+    }
+
+    .panel {
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #131923;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+
+    .panel-head {
+      padding: 12px 15px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .panel-head b { font-size: 15px; letter-spacing: 1px; color: var(--gold); }
+    .panel-head .meta { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+    .plist { padding: 4px 0; }
+
+    .prow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 15px;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(255, 255, 255, .035);
+    }
+
+    .prow:last-child { border-bottom: none; }
+
+    .prow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prow .ch { color: var(--gold); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .prow .st { font-size: 11px; padding: 1px 7px; border-radius: 7px; }
+
+    .st.on { color: #7fe0a8; background: rgba(53, 208, 127, .14); }
+    .st.off { color: #ff9b90; background: rgba(232, 86, 74, .14); }
+    .st.fold { color: #8a97a8; background: rgba(138, 151, 168, .14); }
+    .st.ai { color: #9fc9e8; background: rgba(80, 150, 210, .14); }
+
+    .empty {
+      padding: 26px;
+      text-align: center;
+      color: #5f6b7a;
+      font-size: 13px;
+    }
+
+    table.addr {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    table.addr td {
+      padding: 9px 15px;
+      border-bottom: 1px solid rgba(255, 255, 255, .035);
+    }
+
+    table.addr tr:last-child td { border-bottom: none; }
+    table.addr td:first-child { color: var(--muted); width: 130px; }
+    table.addr .ip { color: #9fd0ff; font-weight: 600; }
+
+    .back {
+      display: inline-block;
+      margin-top: 24px;
+      padding: 10px 20px;
+      border-radius: 11px;
+      background: #202a38;
+      border: 1px solid var(--line);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 14px;
+    }
+
+    .back:hover { filter: brightness(1.18); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1><span class="suit-b">♠</span><span class="suit-r">♥</span> 服务状态</h1>
+    <span id="health" class="pill bad">连接中…</span>
+    <span class="refresh" id="refreshed"></span>
+  </div>
+
+  <div class="grid" id="stats"></div>
+
+  <h2>访问地址</h2>
+  <div class="panel">
+    <table class="addr" id="addrs"></table>
+  </div>
+
+  <h2>房间</h2>
+  <div id="rooms"></div>
+
+  <a class="back" href="/">← 返回牌桌</a>
+</div>
+
+<script>
+'use strict';
+
+const PHASE_CN = {
+  waiting: '等待中',
+  preflop: '翻牌前',
+  flop: '翻牌',
+  turn: '转牌',
+  river: '河牌',
+  showdown: '摊牌',
+  closed: '已解散',
+};
+
+function fmtUptime(sec) {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (d) return `${d}天${h}小时`;
+  if (h) return `${h}小时${m}分`;
+  if (m) return `${m}分${s}秒`;
+  return `${s}秒`;
+}
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+async function refresh() {
+  const health = document.getElementById('health');
+  try {
+    const res = await fetch('/api/status', { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    render(d);
+    health.className = 'pill ok';
+    health.textContent = '运行中';
+    document.getElementById('refreshed').textContent =
+      '最后更新 ' + new Date().toLocaleTimeString('zh-CN');
+  } catch (e) {
+    health.className = 'pill bad';
+    health.textContent = '服务无响应';
+  }
+}
+
+function render(d) {
+  // 概览
+  const stats = document.getElementById('stats');
+  stats.innerHTML = '';
+  const items = [
+    ['房间数', d.totals.rooms, '个'],
+    ['在线真人', d.totals.online, `共 ${d.totals.humans} 位入座`],
+    ['AI 机器人', d.totals.bots, '位'],
+    ['实时连接', d.totals.connections, '条'],
+    ['进行中的对局', d.totals.activeHands, '桌'],
+    ['运行时长', fmtUptime(d.uptimeSec), `PID ${d.pid}`],
+    ['内存占用', d.memory.rssMB + ' MB', `堆 ${d.memory.heapMB} MB`],
+    ['版本', d.version, d.node],
+  ];
+
+  for (const [k, v, s] of items) {
+    const box = el('div', 'stat');
+    box.appendChild(el('div', 'k', k));
+    box.appendChild(el('div', 'v', String(v)));
+    box.appendChild(el('div', 's', s || ''));
+    stats.appendChild(box);
+  }
+
+  // 地址
+  const addrs = document.getElementById('addrs');
+  addrs.innerHTML = '';
+  const rows = [['本机', `http://localhost:${d.port}`]];
+  for (const a of d.addresses) {
+    rows.push([a.iface || '局域网', `http://${a.ip}:${d.port}`]);
+  }
+  for (const [label, url] of rows) {
+    const tr = el('tr');
+    tr.appendChild(el('td', '', label));
+    const td = el('td');
+    const a = el('span', 'ip', url);
+    td.appendChild(a);
+    tr.appendChild(td);
+    addrs.appendChild(tr);
+  }
+
+  // 房间
+  const rooms = document.getElementById('rooms');
+  rooms.innerHTML = '';
+
+  if (!d.rooms.length) {
+    const p = el('div', 'panel');
+    p.appendChild(el('div', 'empty', '目前没有房间。'));
+    rooms.appendChild(p);
+    return;
+  }
+
+  for (const r of d.rooms) {
+    const panel = el('div', 'panel');
+
+    const head = el('div', 'panel-head');
+    head.appendChild(el('b', '', '房间 ' + r.id));
+    head.appendChild(el('span', 'meta',
+      `${PHASE_CN[r.phase] || r.phase}` +
+      (r.handNo ? ` · 第 ${r.handNo} 手` : '') +
+      ` · 底池 ${r.pot}` +
+      ` · 座位 ${r.seated}/${r.maxSeats}` +
+      ` · 空闲 ${r.idleSec}s`
+    ));
+    panel.appendChild(head);
+
+    const list = el('div', 'plist');
+    for (const p of r.players) {
+      const row = el('div', 'prow');
+
+      const nm = el('span', 'nm');
+      nm.textContent = (p.isAI ? '🤖 ' : '') + p.name +
+        (p.name === r.host ? '  (房主)' : '');
+      row.appendChild(nm);
+
+      if (p.isAI) {
+        row.appendChild(el('span', 'st ai', 'AI'));
+      } else if (!p.connected) {
+        row.appendChild(el('span', 'st off', '离线'));
+      } else {
+        row.appendChild(el('span', 'st on', '在线'));
+      }
+
+      if (p.folded) row.appendChild(el('span', 'st fold', '已弃牌'));
+
+      row.appendChild(el('span', 'ch', String(p.chips)));
+      list.appendChild(row);
+    }
+    panel.appendChild(list);
+    rooms.appendChild(panel);
+  }
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
